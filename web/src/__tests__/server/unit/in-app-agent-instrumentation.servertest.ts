@@ -1,5 +1,4 @@
 import { EventType } from "@ag-ui/core";
-import type * as LangfuseTracing from "@langfuse/tracing";
 
 import type { AgUiRunAgentInput } from "@/src/features/in-app-agent/schema";
 import { InAppAgentInstrumentation } from "@/src/features/in-app-agent/server/instrumentation";
@@ -11,32 +10,46 @@ const mocks = vi.hoisted(() => {
     update: vi.fn(),
     end: vi.fn(),
   };
-  const rootSpan = {
-    otelSpan: {
-      setAttributes: vi.fn(),
-      spanContext: vi.fn(() => ({
-        traceId: "0123456789abcdef0123456789abcdef",
-        spanId: "observation-1",
-        traceFlags: 1,
-      })),
-    },
-    startObservation: vi.fn(() => toolSpan),
-    setTraceIO: vi.fn(),
+  const agentSpan = {
+    span: vi.fn(() => toolSpan),
     update: vi.fn(),
     end: vi.fn(),
   };
+  const trace = {
+    span: vi.fn(() => agentSpan),
+    update: vi.fn(),
+  };
+  const handler = {
+    langfuse: {
+      trace: vi.fn(() => trace),
+    },
+  };
   return {
-    rootSpan,
+    agentSpan,
     toolSpan,
-    setLangfuseTracerProvider: vi.fn(),
-    startObservation: vi.fn(() => rootSpan),
+    trace,
+    handler,
+    processTracedEvents: vi.fn(async () => undefined),
+    getInternalTracingHandler: vi.fn(() => ({
+      handler,
+      processTracedEvents: vi.fn(async () => undefined),
+    })),
   };
 });
 
-vi.mock("@langfuse/tracing", async (importOriginal) => ({
-  ...(await importOriginal<typeof LangfuseTracing>()),
-  setLangfuseTracerProvider: mocks.setLangfuseTracerProvider,
-  startObservation: mocks.startObservation,
+vi.mock("@langfuse/shared/src/server", () => ({
+  getInternalTracingHandler: mocks.getInternalTracingHandler,
+  redis: undefined,
+  ClickHouseClientManager: {
+    getInstance: vi.fn(() => ({
+      closeAllConnections: vi.fn(async () => undefined),
+    })),
+  },
+  logger: {
+    debug: vi.fn(),
+    error: vi.fn(),
+    warn: vi.fn(),
+  },
 }));
 
 const input: AgUiRunAgentInput = {
@@ -49,13 +62,6 @@ const input: AgUiRunAgentInput = {
   forwardedProps: {},
 };
 
-function createMockTracerProvider() {
-  return {
-    forceFlush: vi.fn(async () => undefined),
-    getTracer: vi.fn(),
-  };
-}
-
 describe("InAppAgentInstrumentation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,11 +69,12 @@ describe("InAppAgentInstrumentation", () => {
 
   it("records agent output and tool calls as child observations", () => {
     const instrumentation = new InAppAgentInstrumentation({
-      tracerProvider: createMockTracerProvider(),
       input,
       metadata: { langfuse_project_id: "project-1" },
       userId: "user-1",
       traceId,
+      targetProjectId: "project-1",
+      environment: "prod",
     });
 
     instrumentation.recordEvents([
@@ -108,27 +115,21 @@ describe("InAppAgentInstrumentation", () => {
       },
     ]);
 
-    expect(mocks.startObservation).toHaveBeenCalledWith(
-      "claude-agent-run",
+    expect(mocks.getInternalTracingHandler).toHaveBeenCalledWith(
       expect.objectContaining({
-        input: "hello",
-      }),
-      expect.objectContaining({
-        asType: "agent",
-        parentSpanContext: expect.objectContaining({ traceId }),
+        targetProjectId: "project-1",
+        traceId,
+        writeEventsTable: true,
       }),
     );
-    expect(mocks.rootSpan.otelSpan.setAttributes).toHaveBeenCalledWith(
-      expect.objectContaining({
-        "langfuse.trace.name": "in-app-agent",
-        "session.id": "thread-1",
-        "user.id": "user-1",
-      }),
+    expect(mocks.handler.langfuse.trace).toHaveBeenCalledWith(
+      expect.objectContaining({ id: traceId, name: "in-app-agent" }),
     );
-    expect(mocks.rootSpan.startObservation).toHaveBeenCalledWith(
-      "tool:listObservations",
-      expect.any(Object),
-      { asType: "tool" },
+    expect(mocks.trace.span).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "agent-run", input: "hello" }),
+    );
+    expect(mocks.agentSpan.span).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "tool:listObservations" }),
     );
     expect(mocks.toolSpan.update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -136,25 +137,26 @@ describe("InAppAgentInstrumentation", () => {
         output: "tool result",
       }),
     );
-    expect(mocks.rootSpan.update).toHaveBeenCalledWith(
+    expect(mocks.agentSpan.update).toHaveBeenCalledWith(
       expect.objectContaining({
         output: "hi there",
       }),
     );
-    expect(mocks.rootSpan.otelSpan.setAttributes).toHaveBeenCalledWith(
+    expect(mocks.trace.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        "langfuse.trace.output": "hi there",
+        output: "hi there",
       }),
     );
   });
 
   it("records run failures on the agent span", () => {
     const instrumentation = new InAppAgentInstrumentation({
-      tracerProvider: createMockTracerProvider(),
       input,
       metadata: { langfuse_project_id: "project-1" },
       userId: "user-1",
       traceId,
+      targetProjectId: "project-1",
+      environment: "prod",
     });
 
     instrumentation.recordEvents([
@@ -178,7 +180,7 @@ describe("InAppAgentInstrumentation", () => {
       }),
     );
 
-    expect(mocks.rootSpan.update).toHaveBeenCalledWith(
+    expect(mocks.agentSpan.update).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({ error: "agent failed" }),
       }),

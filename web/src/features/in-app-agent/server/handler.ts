@@ -173,24 +173,24 @@ export default async function handler(request: Request) {
               publicKey: mcpApiKey.publicKey,
               secretKey: mcpApiKey.secretKey,
             },
-            langfuseTracing: {
-              publicKey: env.LANGFUSE_AI_FEATURES_PUBLIC_KEY,
-              secretKey: env.LANGFUSE_AI_FEATURES_SECRET_KEY,
-              host: env.LANGFUSE_AI_FEATURES_HOST,
-              environment: getInAppAgentTracingEnvironment(
-                env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
-              ),
-              userId: auth.userId,
-              traceId: langfuseTraceId,
-              metadata: {
-                langfuse_user_id: auth.userId,
-                langfuse_project_id: projectId,
-                thread_id: sanitizedInput.threadId,
-                run_id: sanitizedInput.runId,
-                cloud_region: env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
-                agent_session_type: claudeSessionId ? "existing" : "new",
-              },
-            },
+            langfuseTracing: env.LANGFUSE_AI_FEATURES_PROJECT_ID
+              ? {
+                  targetProjectId: env.LANGFUSE_AI_FEATURES_PROJECT_ID,
+                  environment: getInAppAgentTracingEnvironment(
+                    env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
+                  ),
+                  userId: auth.userId,
+                  traceId: langfuseTraceId,
+                  metadata: {
+                    langfuse_user_id: auth.userId,
+                    langfuse_project_id: projectId,
+                    thread_id: sanitizedInput.threadId,
+                    run_id: sanitizedInput.runId,
+                    cloud_region: env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
+                    agent_session_type: claudeSessionId ? "existing" : "new",
+                  },
+                }
+              : undefined,
             onFinish: cleanupMcpApiKey,
           },
         });

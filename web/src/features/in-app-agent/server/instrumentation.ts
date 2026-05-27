@@ -1,38 +1,24 @@
 import { EventType } from "@ag-ui/core";
-import { LangfuseSpanProcessor } from "@langfuse/otel";
-import {
-  LangfuseOtelSpanAttributes,
-  setLangfuseTracerProvider,
-  startObservation,
-  type LangfuseAgent,
-  type LangfuseTool,
-} from "@langfuse/tracing";
-import { TraceFlags, type TracerProvider } from "@opentelemetry/api";
-import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import { getInternalTracingHandler, logger } from "@langfuse/shared/src/server";
 
 import type {
   AgUiEvent,
   AgUiRunAgentInput,
 } from "@/src/features/in-app-agent/schema";
 import { assertUnreachable } from "@/src/utils/types";
-import { logger } from "@langfuse/shared/src/server";
 
 export type InAppAgentTracingConfig = {
-  publicKey?: string;
-  secretKey?: string;
-  host?: string;
   environment: string;
   metadata: Record<string, unknown>;
   userId: string;
   traceId: string;
+  targetProjectId: string;
 };
 
 export type InAppAgentInstrumentationParams = {
   input: AgUiRunAgentInput;
   tracing?: InAppAgentTracingConfig;
 };
-
-type LangfuseTracerProvider = TracerProvider & { forceFlush(): Promise<void> };
 
 const IN_APP_AGENT_TRACE_NAME = "in-app-agent";
 const IN_APP_AGENT_SPAN_NAME = "agent-run";
@@ -51,8 +37,11 @@ type InstrumentedAgUiEventType = Extract<
   (typeof INSTRUMENTED_EVENT_TYPES)[number]
 >;
 type InstrumentedAgUiEvent = AgUiEvent & { type: InstrumentedAgUiEventType };
-
-const langfuseTracerProviders = new Map<string, LangfuseTracerProvider>();
+type InternalTracingHandler = ReturnType<typeof getInternalTracingHandler>;
+type InAppAgentTrace = ReturnType<
+  InternalTracingHandler["handler"]["langfuse"]["trace"]
+>;
+type InAppAgentSpan = ReturnType<InAppAgentTrace["span"]>;
 
 export function getInAppAgentTracingEnvironment(
   cloudRegion: string | undefined,
@@ -74,17 +63,18 @@ export function createInAppAgentInstrumentation({
   input,
   tracing,
 }: InAppAgentInstrumentationParams) {
-  if (!tracing?.publicKey || !tracing.secretKey) {
+  if (!tracing?.targetProjectId) {
     return undefined;
   }
 
   try {
     return new InAppAgentInstrumentation({
       input,
-      tracerProvider: getLangfuseTracerProvider(tracing),
       metadata: tracing.metadata,
       userId: tracing.userId,
       traceId: tracing.traceId,
+      targetProjectId: tracing.targetProjectId,
+      environment: tracing.environment,
     });
   } catch (error) {
     logger.warn("Failed to initialize in-app agent Langfuse tracing", error);
@@ -93,12 +83,13 @@ export function createInAppAgentInstrumentation({
 }
 
 export class InAppAgentInstrumentation {
-  private readonly tracerProvider: LangfuseTracerProvider;
-  private readonly span: LangfuseAgent;
+  private readonly processTracedEvents: () => Promise<void>;
+  private readonly trace: InAppAgentTrace;
+  private readonly span: InAppAgentSpan;
   private readonly toolSpans = new Map<
     string,
     {
-      span: LangfuseTool;
+      span: InAppAgentSpan;
       name?: string;
       args: string;
       argsComplete: boolean;
@@ -110,41 +101,39 @@ export class InAppAgentInstrumentation {
   private ended = false;
 
   constructor(params: {
-    tracerProvider: LangfuseTracerProvider;
     input: AgUiRunAgentInput;
     metadata: Record<string, unknown>;
     userId: string;
     traceId: string;
+    targetProjectId: string;
+    environment: string;
   }) {
-    this.tracerProvider = params.tracerProvider;
     this.metadata = params.metadata;
-    setLangfuseTracerProvider(this.tracerProvider);
 
-    this.span = startObservation(
-      IN_APP_AGENT_SPAN_NAME,
-      {
-        input: getLastUserMessageText(params.input),
-        metadata: params.metadata,
-      },
-      {
-        asType: "agent",
-        parentSpanContext: {
-          traceId: params.traceId,
-          spanId: "0000000000000001",
-          traceFlags: TraceFlags.SAMPLED,
-        },
-      },
-    );
-    this.span.otelSpan.setAttributes({
-      [LangfuseOtelSpanAttributes.TRACE_NAME]: IN_APP_AGENT_TRACE_NAME,
-      [LangfuseOtelSpanAttributes.TRACE_USER_ID]: params.userId,
-      [LangfuseOtelSpanAttributes.TRACE_SESSION_ID]: params.input.threadId,
-      [LangfuseOtelSpanAttributes.TRACE_TAGS]: ["in-app-agent"],
-      [LangfuseOtelSpanAttributes.TRACE_INPUT]: getLastUserMessageText(
-        params.input,
-      ),
-      [LangfuseOtelSpanAttributes.AS_ROOT]: true,
-      ...getTraceMetadataAttributes(params.metadata),
+    const { handler, processTracedEvents } = getInternalTracingHandler({
+      targetProjectId: params.targetProjectId,
+      traceId: params.traceId,
+      traceName: IN_APP_AGENT_TRACE_NAME,
+      environment: params.environment,
+      userId: params.userId,
+      metadata: params.metadata,
+      writeEventsTable: true,
+    });
+    this.processTracedEvents = processTracedEvents;
+
+    this.trace = handler.langfuse.trace({
+      id: params.traceId,
+      name: IN_APP_AGENT_TRACE_NAME,
+      userId: params.userId,
+      sessionId: params.input.threadId,
+      input: getLastUserMessageText(params.input),
+      metadata: params.metadata,
+      tags: ["in-app-agent"],
+    });
+    this.span = this.trace.span({
+      name: IN_APP_AGENT_SPAN_NAME,
+      input: getLastUserMessageText(params.input),
+      metadata: params.metadata,
     });
   }
 
@@ -170,9 +159,9 @@ export class InAppAgentInstrumentation {
         error: message,
       },
     });
-    this.span.otelSpan.setAttributes({
-      [LangfuseOtelSpanAttributes.TRACE_OUTPUT]: this.output || undefined,
-      ...getTraceMetadataAttributes({ ...this.metadata, error: message }),
+    this.trace.update({
+      output: this.output || undefined,
+      metadata: { ...this.metadata, error: message },
     });
     this.span.end();
     this.ended = true;
@@ -193,16 +182,16 @@ export class InAppAgentInstrumentation {
       output: this.output || undefined,
       metadata,
     });
-    this.span.otelSpan.setAttributes({
-      [LangfuseOtelSpanAttributes.TRACE_OUTPUT]: this.output || undefined,
-      ...getTraceMetadataAttributes(metadata),
+    this.trace.update({
+      output: this.output || undefined,
+      metadata,
     });
     this.span.end();
     this.ended = true;
   }
 
   flush() {
-    void this.tracerProvider.forceFlush().catch((error) => {
+    void this.processTracedEvents().catch((error) => {
       logger.warn("Failed to flush in-app agent Langfuse tracing", error);
     });
   }
@@ -249,13 +238,7 @@ export class InAppAgentInstrumentation {
     const name =
       typeof event.toolCallName === "string" ? event.toolCallName : "tool-call";
     this.toolSpans.set(event.toolCallId, {
-      span: this.span.startObservation(
-        `tool:${name}`,
-        {
-          input: undefined,
-        },
-        { asType: "tool" },
-      ),
+      span: this.span.span({ name: `tool:${name}`, input: undefined }),
       name,
       args: "",
       argsComplete: false,
@@ -305,7 +288,7 @@ export class InAppAgentInstrumentation {
   private endToolSpanIfComplete(
     toolCallId: string,
     tool: {
-      span: LangfuseTool;
+      span: InAppAgentSpan;
       args: string;
       argsComplete: boolean;
       output?: unknown;
@@ -334,38 +317,6 @@ export class InAppAgentInstrumentation {
       this.toolSpans.delete(toolCallId);
     }
   }
-}
-
-function getLangfuseTracerProvider(
-  config: InAppAgentTracingConfig,
-): LangfuseTracerProvider {
-  const cacheKey = JSON.stringify({
-    publicKey: config.publicKey,
-    secretKey: config.secretKey,
-    host: config.host,
-    environment: config.environment,
-  });
-  const cachedProvider = langfuseTracerProviders.get(cacheKey);
-
-  if (cachedProvider) {
-    return cachedProvider;
-  }
-
-  const tracerProvider = new BasicTracerProvider({
-    spanProcessors: [
-      new LangfuseSpanProcessor({
-        publicKey: config.publicKey,
-        secretKey: config.secretKey,
-        baseUrl: config.host,
-        environment: config.environment,
-        ...(config.environment === "dev"
-          ? { exportMode: "immediate" as const }
-          : {}),
-      }),
-    ],
-  });
-  langfuseTracerProviders.set(cacheKey, tracerProvider);
-  return tracerProvider;
 }
 
 function getLastUserMessageText(input: AgUiRunAgentInput): string | undefined {
@@ -400,16 +351,4 @@ function shouldInstrumentAgUiEvent(
   event: AgUiEvent,
 ): event is InstrumentedAgUiEvent {
   return INSTRUMENTED_EVENT_TYPES.some((type) => type === event.type);
-}
-
-function getTraceMetadataAttributes(metadata: Record<string, unknown>) {
-  return Object.fromEntries(
-    Object.entries(metadata).flatMap(([key, value]) => {
-      const serialized =
-        typeof value === "string" ? value : JSON.stringify(value);
-      return serialized
-        ? [[`${LangfuseOtelSpanAttributes.TRACE_METADATA}.${key}`, serialized]]
-        : [];
-    }),
-  );
 }

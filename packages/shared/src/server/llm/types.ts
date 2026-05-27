@@ -589,4 +589,8 @@ export type TraceSinkParams = {
    * events are still written to the legacy traces/observations tables.
    */
   eventsWriter?: InternalEventsWriter;
+  /**
+   * Use the default internal writer to write traced events directly to the events table.
+   */
+  writeEventsTable?: boolean;
 };
