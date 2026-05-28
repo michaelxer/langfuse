@@ -117,7 +117,6 @@ export class InAppAgentInstrumentation {
       environment: params.environment,
       userId: params.userId,
       metadata: params.metadata,
-      writeEventsTable: true,
     });
     this.processTracedEvents = processTracedEvents;
 
