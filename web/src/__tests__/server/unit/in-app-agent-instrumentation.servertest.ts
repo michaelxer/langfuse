@@ -117,9 +117,12 @@ describe("InAppAgentInstrumentation", () => {
 
     expect(mocks.getInternalTracingHandler).toHaveBeenCalledWith(
       expect.objectContaining({
+        environment: "prod",
+        metadata: { langfuse_project_id: "project-1" },
         targetProjectId: "project-1",
         traceId,
-        writeEventsTable: true,
+        traceName: "in-app-agent",
+        userId: "user-1",
       }),
     );
     expect(mocks.handler.langfuse.trace).toHaveBeenCalledWith(
