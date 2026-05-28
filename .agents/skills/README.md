@@ -122,6 +122,19 @@ Use for:
 
 Open: [code-review/SKILL.md](code-review/SKILL.md)
 
+### security-review
+
+Use for:
+- security review during PR review or design / plan mode
+- changes that accept user-supplied URLs, host/endpoint/baseURL fields, or
+  introduce new outbound HTTP calls
+- new integrations (webhooks, blob storage, LLM connections, image proxies)
+- secrets, encryption-at-rest, redirect handling, and RBAC scope changes
+- recurring finding classes that warrant their own topic reference (extend
+  via `security-review/references/<topic>.md`)
+
+Open: [security-review/SKILL.md](security-review/SKILL.md)
+
 ### weekly-production-review
 
 Use for:

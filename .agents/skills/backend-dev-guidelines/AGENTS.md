@@ -299,6 +299,12 @@ Reference existing Langfuse features for implementation patterns:
 ❌ No input validation (always use Zod v4)
 ❌ Missing projectId filter on tenant-scoped queries
 ❌ console.log instead of logger/traceException (OpenTelemetry)
+❌ Accepting a user-supplied URL/host/endpoint without running it through the
+   matching validator (`validateLlmConnectionBaseURL`, `validateWebhookURL`,
+   `validateBlobStorageEndpoint`, or a new wrapper around
+   `validateOutboundUrlHost` from `packages/shared/src/server/outbound-url/`).
+   See [`security-review`](../security-review/SKILL.md) for the required
+   save-time + use-time + redirect-time defenses.
 
 ---
 

@@ -51,6 +51,9 @@ evaluating, and debugging AI applications.
   `.agents/skills/add-model-price/SKILL.md`
 - Code review tasks:
   `.agents/skills/code-review/SKILL.md`
+- Security review during code review or design — user-supplied URLs, outbound
+  HTTP, new integrations, secrets, tenant isolation, RBAC scope:
+  `.agents/skills/security-review/SKILL.md`
 - Debugging a Linear issue, GitHub issue, or incident report using Datadog
   (APM, logs, metrics) to establish a root cause:
   `.agents/skills/debug-issue-with-datadog/SKILL.md`
