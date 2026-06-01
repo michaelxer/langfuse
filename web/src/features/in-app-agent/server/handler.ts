@@ -133,6 +133,7 @@ export default async function handler(request: Request) {
         organization: {
           select: {
             aiFeaturesEnabled: true,
+            aiTelemetryEnabled: true,
           },
         },
       },
@@ -146,6 +147,8 @@ export default async function handler(request: Request) {
 
     const sanitizedInput = sanitizeAgentInput(input);
     const awsProfile = env.LANGFUSE_IN_APP_AGENT_AWS_PROFILE;
+    const targetProjectId = env.LANGFUSE_AI_FEATURES_PROJECT_ID;
+
     return await withInAppAgentMcpApiKeyCleanup(
       projectId,
       (mcpApiKey, cleanupMcpApiKey) => {
@@ -173,24 +176,25 @@ export default async function handler(request: Request) {
               publicKey: mcpApiKey.publicKey,
               secretKey: mcpApiKey.secretKey,
             },
-            langfuseTracing: env.LANGFUSE_AI_FEATURES_PROJECT_ID
-              ? {
-                  targetProjectId: env.LANGFUSE_AI_FEATURES_PROJECT_ID,
-                  environment: getInAppAgentTracingEnvironment(
-                    env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
-                  ),
-                  userId: auth.userId,
-                  traceId: langfuseTraceId,
-                  metadata: {
-                    langfuse_user_id: auth.userId,
-                    langfuse_project_id: projectId,
-                    thread_id: sanitizedInput.threadId,
-                    run_id: sanitizedInput.runId,
-                    cloud_region: env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
-                    agent_session_type: claudeSessionId ? "existing" : "new",
-                  },
-                }
-              : undefined,
+            langfuseTracing:
+              project.organization.aiTelemetryEnabled && targetProjectId
+                ? {
+                    targetProjectId,
+                    environment: getInAppAgentTracingEnvironment(
+                      env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
+                    ),
+                    userId: auth.userId,
+                    traceId: langfuseTraceId,
+                    metadata: {
+                      langfuse_user_id: auth.userId,
+                      langfuse_project_id: projectId,
+                      thread_id: sanitizedInput.threadId,
+                      run_id: sanitizedInput.runId,
+                      cloud_region: env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
+                      agent_session_type: claudeSessionId ? "existing" : "new",
+                    },
+                  }
+                : undefined,
             onFinish: cleanupMcpApiKey,
           },
         });
