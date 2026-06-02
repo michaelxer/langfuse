@@ -183,7 +183,6 @@ export default async function handler(request: Request) {
                     environment: LangfuseInternalTraceEnvironment.InAppAgent,
                     userId: auth.userId,
                     traceId: langfuseTraceId,
-                    captureTraceInputOutput: !claudeSessionId,
                     metadata: {
                       langfuse_user_id: auth.userId,
                       langfuse_project_id: projectId,

@@ -78,7 +78,6 @@ describe("InAppAgentInstrumentation", () => {
       traceId,
       targetProjectId: "project-1",
       environment: "prod",
-      captureTraceInputOutput: true,
     });
 
     instrumentation.recordEvents([
@@ -132,6 +131,9 @@ describe("InAppAgentInstrumentation", () => {
     expect(mocks.handler.langfuse.trace).toHaveBeenCalledWith(
       expect.objectContaining({ id: traceId, name: "in-app-agent" }),
     );
+    expect(mocks.handler.langfuse.trace.mock.calls[0][0]).not.toHaveProperty(
+      "input",
+    );
     expect(mocks.trace.span).toHaveBeenCalledWith(
       expect.objectContaining({ name: "agent-run", input: "hello" }),
     );
@@ -149,11 +151,7 @@ describe("InAppAgentInstrumentation", () => {
         output: "hi there",
       }),
     );
-    expect(mocks.trace.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        output: "hi there",
-      }),
-    );
+    expect(mocks.trace.update.mock.calls[0][0]).not.toHaveProperty("output");
   });
 
   it("records run failures on the agent span", () => {
@@ -164,7 +162,6 @@ describe("InAppAgentInstrumentation", () => {
       traceId,
       targetProjectId: "project-1",
       environment: "prod",
-      captureTraceInputOutput: true,
     });
 
     instrumentation.recordEvents([
@@ -199,7 +196,7 @@ describe("InAppAgentInstrumentation", () => {
     );
   });
 
-  it("does not overwrite trace input and output on resumed sessions", () => {
+  it("does not write trace input and output", () => {
     const instrumentation = new InAppAgentInstrumentation({
       input,
       metadata: { langfuse_project_id: "project-1" },
@@ -207,7 +204,6 @@ describe("InAppAgentInstrumentation", () => {
       traceId,
       targetProjectId: "project-1",
       environment: "prod",
-      captureTraceInputOutput: false,
     });
 
     instrumentation.recordEvents([
@@ -220,15 +216,13 @@ describe("InAppAgentInstrumentation", () => {
       },
     ]);
 
-    expect(mocks.handler.langfuse.trace).toHaveBeenCalledWith(
-      expect.objectContaining({ input: undefined }),
+    expect(mocks.handler.langfuse.trace.mock.calls[0][0]).not.toHaveProperty(
+      "input",
     );
     expect(mocks.agentSpan.update).toHaveBeenCalledWith(
       expect.objectContaining({ output: "second turn output" }),
     );
-    expect(mocks.trace.update).toHaveBeenCalledWith(
-      expect.objectContaining({ output: undefined }),
-    );
+    expect(mocks.trace.update.mock.calls[0][0]).not.toHaveProperty("output");
   });
 
   it("ignores events after instrumentation ended", () => {
@@ -239,7 +233,6 @@ describe("InAppAgentInstrumentation", () => {
       traceId,
       targetProjectId: "project-1",
       environment: "prod",
-      captureTraceInputOutput: true,
     });
 
     instrumentation.end({});

@@ -13,7 +13,6 @@ export type InAppAgentTracingConfig = {
   userId: string;
   traceId: string;
   targetProjectId: string;
-  captureTraceInputOutput: boolean;
 };
 
 export type InAppAgentInstrumentationParams = {
@@ -60,7 +59,6 @@ export function createInAppAgentInstrumentation({
       traceId: tracing.traceId,
       targetProjectId: tracing.targetProjectId,
       environment: tracing.environment,
-      captureTraceInputOutput: tracing.captureTraceInputOutput,
     });
   } catch (error) {
     logger.warn("Failed to initialize in-app agent Langfuse tracing", error);
@@ -72,12 +70,10 @@ export class InAppAgentInstrumentation {
   private readonly processTracedEvents: () => Promise<void>;
   private readonly trace: InAppAgentTrace;
   private readonly span: InAppAgentSpan;
-  private readonly captureTraceInputOutput: boolean;
   private readonly toolSpans = new Map<
     string,
     {
       span: InAppAgentSpan;
-      name?: string;
       args: string;
       argsComplete: boolean;
       output?: unknown;
@@ -94,10 +90,8 @@ export class InAppAgentInstrumentation {
     traceId: string;
     targetProjectId: string;
     environment: string;
-    captureTraceInputOutput: boolean;
   }) {
     this.metadata = params.metadata;
-    this.captureTraceInputOutput = params.captureTraceInputOutput;
 
     const { handler, processTracedEvents } = getInternalTracingHandler({
       targetProjectId: params.targetProjectId,
@@ -114,9 +108,6 @@ export class InAppAgentInstrumentation {
       name: IN_APP_AGENT_TRACE_NAME,
       userId: params.userId,
       sessionId: params.input.threadId,
-      input: this.captureTraceInputOutput
-        ? getLastUserMessageText(params.input)
-        : undefined,
       metadata: params.metadata,
       tags: ["in-app-agent"],
     });
@@ -156,9 +147,6 @@ export class InAppAgentInstrumentation {
       },
     });
     this.trace.update({
-      output: this.captureTraceInputOutput
-        ? this.output || undefined
-        : undefined,
       metadata: { ...this.metadata, error: message },
     });
     this.span.end();
@@ -181,9 +169,6 @@ export class InAppAgentInstrumentation {
       metadata,
     });
     this.trace.update({
-      output: this.captureTraceInputOutput
-        ? this.output || undefined
-        : undefined,
       metadata,
     });
     this.span.end();
@@ -191,7 +176,7 @@ export class InAppAgentInstrumentation {
   }
 
   flush() {
-    void this.processTracedEvents().catch((error) => {
+    this.processTracedEvents().catch((error) => {
       logger.warn("Failed to flush in-app agent Langfuse tracing", error);
     });
   }
@@ -239,7 +224,6 @@ export class InAppAgentInstrumentation {
       typeof event.toolCallName === "string" ? event.toolCallName : "tool-call";
     this.toolSpans.set(event.toolCallId, {
       span: this.span.span({ name: `tool:${name}`, input: undefined }),
-      name,
       args: "",
       argsComplete: false,
     });
