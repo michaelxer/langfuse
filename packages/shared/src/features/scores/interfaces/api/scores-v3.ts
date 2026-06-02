@@ -33,9 +33,37 @@ const fieldsParam = z
     }),
   );
 
+const csvStringParam = z
+  .string()
+  .transform((val) => val.split(",").map((v) => v.trim()))
+  .optional();
 export const GetScoresV3 = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
   fields: fieldsParam,
+  // Identifier filters (multi-value, comma-separated)
+  id: csvStringParam,
+  name: csvStringParam,
+  source: csvStringParam,
+  dataType: csvStringParam,
+  environment: csvStringParam,
+  configId: csvStringParam,
+  queueId: csvStringParam,
+  authorUserId: csvStringParam,
+  // Value filters
+  value: csvStringParam,
+  valueMin: z.coerce.number().optional(),
+  valueMax: z.coerce.number().optional(),
+  // Entity-bounded filters
+  traceId: csvStringParam,
+  sessionId: csvStringParam,
+  observationId: csvStringParam,
+  experimentId: csvStringParam,
+  // Timestamp filters
+  fromTimestamp: z.coerce.date().optional(),
+  toTimestamp: z.coerce.date().optional(),
+  // Deferred params (always → 400 — require trace JOIN not present in v3)
+  userId: z.string().optional(),
+  traceTags: z.string().optional(),
 });
 
 // Optional group schemas
