@@ -184,12 +184,16 @@ describe("InAppAgentInstrumentation", () => {
     expect(mocks.toolSpan.update).toHaveBeenCalledWith(
       expect.objectContaining({
         input: { traceId: "trace-1" },
+        level: "ERROR",
+        statusMessage: "agent failed",
         metadata: expect.objectContaining({ error: "agent failed" }),
       }),
     );
 
     expect(mocks.agentSpan.update).toHaveBeenCalledWith(
       expect.objectContaining({
+        level: "ERROR",
+        statusMessage: "agent failed",
         metadata: expect.objectContaining({ error: "agent failed" }),
       }),
     );

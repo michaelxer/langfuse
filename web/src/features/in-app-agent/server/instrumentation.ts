@@ -145,9 +145,11 @@ export class InAppAgentInstrumentation {
     }
 
     const message = error instanceof Error ? error.message : String(error);
-    this.endOpenToolSpans({ error: message });
+    this.endOpenToolSpans({ error: message }, message);
     this.span.update({
       output: this.output || undefined,
+      level: "ERROR",
+      statusMessage: message,
       metadata: {
         ...this.metadata,
         error: message,
@@ -304,11 +306,15 @@ export class InAppAgentInstrumentation {
     this.toolSpans.delete(toolCallId);
   }
 
-  private endOpenToolSpans(metadata?: Record<string, unknown>) {
+  private endOpenToolSpans(
+    metadata?: Record<string, unknown>,
+    statusMessage?: string,
+  ) {
     for (const [toolCallId, tool] of this.toolSpans.entries()) {
       tool.span.update({
         input: parseJsonOrString(tool.args),
         output: tool.output,
+        ...(statusMessage ? { level: "ERROR" as const, statusMessage } : {}),
         metadata: metadata ? { ...metadata, toolCallId } : { toolCallId },
       });
       tool.span.end();
