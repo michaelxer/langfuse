@@ -217,6 +217,8 @@ export function createAgUiStream(params: {
       }
 
       closed = true;
+      instrumentation?.end({ aborted: true });
+      instrumentation?.flush();
       removeAbortHandler();
       subscription?.unsubscribe();
       void adapter.interrupt().catch(() => undefined);

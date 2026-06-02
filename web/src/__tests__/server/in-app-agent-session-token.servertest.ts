@@ -68,4 +68,23 @@ describe("in-app agent session tokens", () => {
       }),
     ).toThrow(InvalidInAppAgentSessionTokenError);
   });
+
+  it("accepts legacy tokens without a Langfuse trace id", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-13T00:00:00.000Z"));
+    const { langfuseTraceId: _langfuseTraceId, ...legacyTokenParams } =
+      tokenParams;
+    const token = signInAppAgentSessionToken(legacyTokenParams as any);
+
+    const verified = verifyInAppAgentSessionToken(token, {
+      userId: tokenParams.userId,
+      threadId: tokenParams.threadId,
+    });
+
+    expect(verified).toEqual({
+      projectId: tokenParams.projectId,
+      claudeSessionId: tokenParams.claudeSessionId,
+      langfuseTraceId: expect.stringMatching(/^[a-f0-9]{32}$/),
+    });
+  });
 });

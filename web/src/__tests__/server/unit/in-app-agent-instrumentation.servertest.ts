@@ -75,6 +75,7 @@ describe("InAppAgentInstrumentation", () => {
       traceId,
       targetProjectId: "project-1",
       environment: "prod",
+      captureTraceInputOutput: true,
     });
 
     instrumentation.recordEvents([
@@ -160,6 +161,7 @@ describe("InAppAgentInstrumentation", () => {
       traceId,
       targetProjectId: "project-1",
       environment: "prod",
+      captureTraceInputOutput: true,
     });
 
     instrumentation.recordEvents([
@@ -188,5 +190,60 @@ describe("InAppAgentInstrumentation", () => {
         metadata: expect.objectContaining({ error: "agent failed" }),
       }),
     );
+  });
+
+  it("does not overwrite trace input and output on resumed sessions", () => {
+    const instrumentation = new InAppAgentInstrumentation({
+      input,
+      metadata: { langfuse_project_id: "project-1" },
+      userId: "user-1",
+      traceId,
+      targetProjectId: "project-1",
+      environment: "prod",
+      captureTraceInputOutput: false,
+    });
+
+    instrumentation.recordEvents([
+      {
+        type: EventType.TEXT_MESSAGE_CONTENT,
+        delta: "second turn output",
+      },
+      {
+        type: EventType.RUN_FINISHED,
+      },
+    ]);
+
+    expect(mocks.handler.langfuse.trace).toHaveBeenCalledWith(
+      expect.objectContaining({ input: undefined }),
+    );
+    expect(mocks.agentSpan.update).toHaveBeenCalledWith(
+      expect.objectContaining({ output: "second turn output" }),
+    );
+    expect(mocks.trace.update).toHaveBeenCalledWith(
+      expect.objectContaining({ output: undefined }),
+    );
+  });
+
+  it("ignores events after instrumentation ended", () => {
+    const instrumentation = new InAppAgentInstrumentation({
+      input,
+      metadata: { langfuse_project_id: "project-1" },
+      userId: "user-1",
+      traceId,
+      targetProjectId: "project-1",
+      environment: "prod",
+      captureTraceInputOutput: true,
+    });
+
+    instrumentation.end({});
+    instrumentation.recordEvents([
+      {
+        type: EventType.TOOL_CALL_START,
+        toolCallId: "tool-after-end",
+        toolCallName: "lateTool",
+      },
+    ]);
+
+    expect(mocks.agentSpan.span).not.toHaveBeenCalled();
   });
 });

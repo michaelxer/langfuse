@@ -13,6 +13,7 @@ export type InAppAgentTracingConfig = {
   userId: string;
   traceId: string;
   targetProjectId: string;
+  captureTraceInputOutput: boolean;
 };
 
 export type InAppAgentInstrumentationParams = {
@@ -75,6 +76,7 @@ export function createInAppAgentInstrumentation({
       traceId: tracing.traceId,
       targetProjectId: tracing.targetProjectId,
       environment: tracing.environment,
+      captureTraceInputOutput: tracing.captureTraceInputOutput,
     });
   } catch (error) {
     logger.warn("Failed to initialize in-app agent Langfuse tracing", error);
@@ -86,6 +88,7 @@ export class InAppAgentInstrumentation {
   private readonly processTracedEvents: () => Promise<void>;
   private readonly trace: InAppAgentTrace;
   private readonly span: InAppAgentSpan;
+  private readonly captureTraceInputOutput: boolean;
   private readonly toolSpans = new Map<
     string,
     {
@@ -107,8 +110,10 @@ export class InAppAgentInstrumentation {
     traceId: string;
     targetProjectId: string;
     environment: string;
+    captureTraceInputOutput: boolean;
   }) {
     this.metadata = params.metadata;
+    this.captureTraceInputOutput = params.captureTraceInputOutput;
 
     const { handler, processTracedEvents } = getInternalTracingHandler({
       targetProjectId: params.targetProjectId,
@@ -125,7 +130,9 @@ export class InAppAgentInstrumentation {
       name: IN_APP_AGENT_TRACE_NAME,
       userId: params.userId,
       sessionId: params.input.threadId,
-      input: getLastUserMessageText(params.input),
+      input: this.captureTraceInputOutput
+        ? getLastUserMessageText(params.input)
+        : undefined,
       metadata: params.metadata,
       tags: ["in-app-agent"],
     });
@@ -137,6 +144,10 @@ export class InAppAgentInstrumentation {
   }
 
   recordEvents(events: AgUiEvent[]) {
+    if (this.ended) {
+      return;
+    }
+
     for (const event of events) {
       if (shouldInstrumentAgUiEvent(event)) {
         this.recordEvent(event);
@@ -159,7 +170,9 @@ export class InAppAgentInstrumentation {
       },
     });
     this.trace.update({
-      output: this.output || undefined,
+      output: this.captureTraceInputOutput
+        ? this.output || undefined
+        : undefined,
       metadata: { ...this.metadata, error: message },
     });
     this.span.end();
@@ -182,7 +195,9 @@ export class InAppAgentInstrumentation {
       metadata,
     });
     this.trace.update({
-      output: this.output || undefined,
+      output: this.captureTraceInputOutput
+        ? this.output || undefined
+        : undefined,
       metadata,
     });
     this.span.end();

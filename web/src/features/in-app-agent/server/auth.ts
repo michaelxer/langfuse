@@ -19,7 +19,7 @@ const InAppAgentSessionTokenPayloadSchema = z.object({
   projectId: z.string(),
   threadId: z.string(),
   claudeSessionId: z.string(),
-  langfuseTraceId: z.string(),
+  langfuseTraceId: z.string().optional(),
   exp: z.number().int(),
 });
 
@@ -126,7 +126,8 @@ export function verifyInAppAgentSessionToken(
   return {
     projectId: payload.projectId,
     claudeSessionId: payload.claudeSessionId,
-    langfuseTraceId: payload.langfuseTraceId,
+    langfuseTraceId:
+      payload.langfuseTraceId ?? crypto.randomBytes(16).toString("hex"),
   };
 }
 
