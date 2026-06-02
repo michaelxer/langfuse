@@ -44,22 +44,6 @@ type InAppAgentTrace = ReturnType<
 >;
 type InAppAgentSpan = ReturnType<InAppAgentTrace["span"]>;
 
-export function getInAppAgentTracingEnvironment(
-  cloudRegion: string | undefined,
-): string {
-  switch (cloudRegion) {
-    case "US":
-    case "EU":
-    case "HIPAA":
-    case "JP":
-      return "prod";
-    case "STAGING":
-      return "staging";
-    default:
-      return "dev";
-  }
-}
-
 export function createInAppAgentInstrumentation({
   input,
   tracing,

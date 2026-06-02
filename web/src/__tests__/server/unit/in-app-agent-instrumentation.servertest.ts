@@ -39,6 +39,9 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@langfuse/shared/src/server", () => ({
   getInternalTracingHandler: mocks.getInternalTracingHandler,
+  LangfuseInternalTraceEnvironment: {
+    InAppAgent: "langfuse-in-app-agent",
+  },
   redis: undefined,
   ClickHouseClientManager: {
     getInstance: vi.fn(() => ({

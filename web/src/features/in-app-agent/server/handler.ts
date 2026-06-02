@@ -9,7 +9,6 @@ import {
   type AgUiMessage,
 } from "@/src/features/in-app-agent/schema";
 import { createAgUiStream } from "@/src/features/in-app-agent/server/agent";
-import { getInAppAgentTracingEnvironment } from "@/src/features/in-app-agent/server/instrumentation";
 import {
   InvalidInAppAgentSessionTokenError,
   signInAppAgentSessionToken,
@@ -21,6 +20,7 @@ import {
   BaseError,
   ForbiddenError,
   InvalidRequestError,
+  LangfuseInternalTraceEnvironment,
   UnauthorizedError,
 } from "@langfuse/shared";
 import { prisma } from "@langfuse/shared/src/db";
@@ -180,9 +180,7 @@ export default async function handler(request: Request) {
               project.organization.aiTelemetryEnabled && targetProjectId
                 ? {
                     targetProjectId,
-                    environment: getInAppAgentTracingEnvironment(
-                      env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION,
-                    ),
+                    environment: LangfuseInternalTraceEnvironment.InAppAgent,
                     userId: auth.userId,
                     traceId: langfuseTraceId,
                     captureTraceInputOutput: !claudeSessionId,
