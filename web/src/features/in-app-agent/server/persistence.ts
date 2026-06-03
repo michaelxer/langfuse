@@ -187,23 +187,6 @@ export async function finishRun(params: {
     );
 }
 
-export async function updateProviderSessionId(params: {
-  prisma: PrismaClient;
-  projectId: string;
-  conversationId: string;
-  providerSessionId: string;
-}) {
-  await params.prisma.inAppAgentConversation.update({
-    where: {
-      id_projectId: {
-        id: params.conversationId,
-        projectId: params.projectId,
-      },
-    },
-    data: { providerSessionId: params.providerSessionId },
-  });
-}
-
 export async function replaceRunEvents(params: {
   prisma: PrismaClient;
   projectId: string;
@@ -343,6 +326,23 @@ export function toPersistableAgentEvent(event: AgUiEvent): AgUiEvent | null {
         input,
       });
     }
+    case EventType.MESSAGES_SNAPSHOT:
+      return null;
+    case EventType.TEXT_MESSAGE_CHUNK: {
+      const messageId = getString(event, "messageId");
+      const role = getTextChunkRole(event);
+
+      if (!messageId || role !== "assistant") {
+        return null;
+      }
+
+      return compactObject({
+        type: event.type,
+        messageId,
+        role,
+        delta: getString(event, "delta") ?? "",
+      });
+    }
     case EventType.TEXT_MESSAGE_START:
       return compactObject({
         type: event.type,
@@ -471,6 +471,48 @@ export function createConversationMessageAccumulator(
         }
 
         return changed;
+      }
+      case EventType.MESSAGES_SNAPSHOT: {
+        if (!Array.isArray(event.messages)) {
+          break;
+        }
+
+        let changed = false;
+
+        for (const message of parseMessages(event.messages)) {
+          changed = upsertMessage(message) || changed;
+        }
+
+        return changed;
+      }
+      case EventType.TEXT_MESSAGE_CHUNK: {
+        const messageId = getString(event, "messageId");
+        const role = getTextChunkRole(event);
+
+        if (!messageId || role !== "assistant") {
+          break;
+        }
+
+        const existingIndex = messageIndexes.get(messageId);
+        const existingMessage =
+          existingIndex === undefined ? undefined : messages[existingIndex];
+        const existingContent =
+          existingMessage?.role === "assistant"
+            ? existingMessage.content
+            : undefined;
+        const draft = textDrafts.get(messageId) ?? {
+          id: messageId,
+          content: existingContent ?? "",
+        };
+
+        draft.content += getString(event, "delta") ?? "";
+        textDrafts.set(messageId, draft);
+
+        return upsertMessage({
+          id: draft.id,
+          role: "assistant",
+          content: draft.content,
+        });
       }
       case EventType.TEXT_MESSAGE_START: {
         const messageId = getString(event, "messageId");
@@ -660,6 +702,12 @@ function mergeToolCalls(
   }
 
   return Array.from(byId.values());
+}
+
+function getTextChunkRole(event: unknown) {
+  const role = getString(event, "role");
+
+  return role === undefined || role === "assistant" ? "assistant" : role;
 }
 
 function getString(event: unknown, key: string): string | undefined {

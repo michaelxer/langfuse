@@ -18,10 +18,10 @@ import {
   createRun,
   ensureOwnedConversation,
   finishRun,
+  getConversationMessages,
   replaceRunEvents,
   shouldFlushPersistedEvent,
   toPersistableAgentEvent,
-  updateProviderSessionId,
 } from "@/src/features/in-app-agent/server/persistence";
 import { getAuthOptions } from "@/src/server/auth";
 import { isProjectMemberOrAdmin } from "@/src/server/utils/checkProjectMembershipOrAdmin";
@@ -50,6 +50,8 @@ export default async function handler(request: Request) {
     if (!session?.user) {
       throw new UnauthorizedError("Unauthenticated");
     }
+
+    const userId = session.user.id;
 
     if (!env.NEXT_PUBLIC_LANGFUSE_CLOUD_REGION) {
       throw new BaseError(
@@ -95,8 +97,6 @@ export default async function handler(request: Request) {
       throw new InvalidRequestError("Invalid agent state");
     }
 
-    const auth = { userId: session.user.id, user: session.user };
-
     const { projectId, conversationId } = (() => {
       if (parsedState.data.type === "newConversation") {
         return {
@@ -115,14 +115,14 @@ export default async function handler(request: Request) {
       };
     })();
 
-    if (!isProjectMemberOrAdmin(auth.user, projectId)) {
+    if (!isProjectMemberOrAdmin(session.user, projectId)) {
       throw new ForbiddenError("User is not a member of this project");
     }
 
     // This condition should match `useIsFeatureEnabled("inAppAgent")` in the frontend
     const isInAppAgentEnabled =
-      auth.user.featureFlags.inAppAgent === true ||
-      auth.user.admin === true ||
+      session.user.featureFlags.inAppAgent === true ||
+      session.user.admin === true ||
       session.environment.enableExperimentalFeatures === true;
 
     if (!isInAppAgentEnabled) {
@@ -146,15 +146,34 @@ export default async function handler(request: Request) {
       );
     }
 
-    const sanitizedInput = sanitizeAgentInput(input);
+    const currentTurnInput = sanitizeAgentInput(input);
     const awsProfile = env.LANGFUSE_IN_APP_AGENT_AWS_PROFILE;
+    const bedrockModelId = env.LANGFUSE_IN_APP_AGENT_BEDROCK_MODEL_ID;
+
+    if (!bedrockModelId) {
+      throw new BaseError(
+        "PreconditionFailedError",
+        412,
+        "Assistant Bedrock model is not configured.",
+        true,
+      );
+    }
 
     const conversation = await ensureOwnedConversation({
       prisma,
       projectId,
       conversationId,
-      userId: auth.userId,
+      userId: userId,
     });
+    const conversationMessages = await getConversationMessages({
+      prisma,
+      projectId,
+      conversationId: conversation.id,
+    });
+    const agentInput = withConversationHistory(
+      currentTurnInput,
+      conversationMessages,
+    );
 
     return await withInAppAgentMcpApiKeyCleanup(
       projectId,
@@ -164,12 +183,11 @@ export default async function handler(request: Request) {
         try {
           await createRun({
             prisma,
-            runId: sanitizedInput.runId,
+            runId: currentTurnInput.runId,
             projectId,
             conversationId: conversation.id,
-            triggeredByUserId: auth.userId,
-            // TODO: Store the exact provider model id, not the Claude SDK alias.
-            model: "haiku",
+            triggeredByUserId: userId,
+            model: bedrockModelId,
             mcpApiKeyId: mcpApiKey.id,
           });
           runCreated = true;
@@ -177,12 +195,12 @@ export default async function handler(request: Request) {
           const persistedEvents: AgUiEvent[] = [
             {
               type: EventType.RUN_STARTED,
-              threadId: sanitizedInput.threadId,
-              runId: sanitizedInput.runId,
-              ...(sanitizedInput.parentRunId
-                ? { parentRunId: sanitizedInput.parentRunId }
+              threadId: currentTurnInput.threadId,
+              runId: currentTurnInput.runId,
+              ...(currentTurnInput.parentRunId
+                ? { parentRunId: currentTurnInput.parentRunId }
                 : {}),
-              input: sanitizedInput,
+              input: currentTurnInput,
             },
           ];
 
@@ -191,57 +209,27 @@ export default async function handler(request: Request) {
               prisma,
               projectId,
               conversationId: conversation.id,
-              runId: sanitizedInput.runId,
+              runId: currentTurnInput.runId,
               events: persistedEvents,
             });
 
           await replacePersistedRunEvents();
 
-          let providerSessionPersistence: Promise<void> = Promise.resolve();
-          const persistProviderSessionId = (claudeSessionId: string) => {
-            providerSessionPersistence = updateProviderSessionId({
-              prisma,
-              projectId,
-              conversationId: conversation.id,
-              providerSessionId: claudeSessionId,
-            }).catch((error) => {
-              logger.error("Failed to persist agent session id", {
-                error,
-                projectId,
-                conversationId: conversation.id,
-              });
-            });
-          };
-
           const finishCurrentRun = (error?: {
             errorCode: string;
             errorMessage: string;
           }) =>
-            providerSessionPersistence.then(() =>
-              finishRun({
-                prisma,
-                runId: sanitizedInput.runId,
-                projectId,
-                ...error,
-              }),
-            );
+            finishRun({
+              prisma,
+              runId: currentTurnInput.runId,
+              projectId,
+              ...error,
+            });
 
           const stream = createAgUiStream({
-            input: sanitizedInput,
+            input: agentInput,
             signal: request.signal,
             options: {
-              // TODO: Claude's default session storage is pod-local. Add a shared
-              // SessionStore or replay persisted history before relying on cross-pod resumes.
-              resumeSessionId: conversation.providerSessionId ?? undefined,
-              onResumeSessionId: (claudeSessionId) => {
-                persistProviderSessionId(claudeSessionId);
-
-                return {
-                  type: "existingConversation",
-                  projectId,
-                  conversationId: conversation.id,
-                };
-              },
               onEvent: (event) => {
                 const persistedEvent = toPersistableAgentEvent(event);
 
@@ -264,21 +252,26 @@ export default async function handler(request: Request) {
               onComplete: () =>
                 replacePersistedRunEvents().then(() => finishCurrentRun()),
               onAbort: () =>
-                finishCurrentRun({
-                  errorCode: "cancelled",
-                  errorMessage: "Client aborted request",
-                }),
+                replacePersistedRunEvents().then(() =>
+                  finishCurrentRun({
+                    errorCode: "cancelled",
+                    errorMessage: "Client aborted request",
+                  }),
+                ),
               onError: (error) =>
-                finishCurrentRun({
-                  errorCode: "agent_error",
-                  errorMessage:
-                    error instanceof Error
-                      ? error.message
-                      : "Unknown agent error",
-                }),
+                replacePersistedRunEvents().then(() =>
+                  finishCurrentRun({
+                    errorCode: "agent_error",
+                    errorMessage:
+                      error instanceof Error
+                        ? error.message
+                        : "Unknown agent error",
+                  }),
+                ),
               onFinish: cleanupMcpApiKey,
               awsBedrock: {
                 region: env.LANGFUSE_AWS_BEDROCK_REGION,
+                modelId: bedrockModelId,
                 ...(awsProfile ? { profile: awsProfile } : {}),
               },
               langfuseMcp: {
@@ -302,7 +295,7 @@ export default async function handler(request: Request) {
           if (runCreated) {
             await finishRun({
               prisma,
-              runId: sanitizedInput.runId,
+              runId: currentTurnInput.runId,
               projectId,
               errorCode: "init_failed",
               errorMessage:
@@ -413,6 +406,16 @@ function sanitizeAgentInput(input: AgUiRunAgentInput): SanitizedAgentInput {
     tools: [],
     context: [],
     forwardedProps: {},
+  };
+}
+
+function withConversationHistory(
+  input: SanitizedAgentInput,
+  conversationMessages: readonly AgUiMessage[],
+): AgUiRunAgentInput {
+  return {
+    ...input,
+    messages: [...conversationMessages, ...input.messages],
   };
 }
 

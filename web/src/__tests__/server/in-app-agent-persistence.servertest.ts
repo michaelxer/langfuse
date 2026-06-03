@@ -661,7 +661,7 @@ describe("in-app agent persistence", () => {
     expect(JSON.stringify(events)).not.toContain("secret");
   });
 
-  it("ignores adapter message snapshots when persisting compact events", async () => {
+  it("does not persist adapter message snapshots", async () => {
     const { caller, projectId, userId } = await createCaller();
     const conversation = await createConversation({ projectId, userId });
     const run = await createConversationRun({
@@ -688,7 +688,7 @@ describe("in-app agent persistence", () => {
           {
             id: "snapshot-only",
             role: "assistant",
-            content: "Do not restore me",
+            content: "Restore me from the snapshot",
           },
         ],
       },
@@ -711,6 +711,81 @@ describe("in-app agent persistence", () => {
         where: { projectId, conversationId: conversation.id, runId: run.id },
       }),
     ).resolves.toBe(1);
+  });
+
+  it("stores and reduces text message chunks", async () => {
+    const { caller, projectId, userId } = await createCaller();
+    const conversation = await createConversation({ projectId, userId });
+    const run = await createConversationRun({
+      projectId,
+      conversationId: conversation.id,
+      userId,
+    });
+
+    const events = await startCompactRun({
+      projectId,
+      conversationId: conversation.id,
+      runId: run.id,
+      messageId: "chunk-user",
+      content: "Stream this answer",
+    });
+    await processAndPersistEvent({
+      projectId,
+      conversationId: conversation.id,
+      runId: run.id,
+      events,
+      event: {
+        type: EventType.TEXT_MESSAGE_CHUNK,
+        messageId: "chunk-assistant",
+        delta: "First chunk",
+      },
+    });
+    await processAndPersistEvent({
+      projectId,
+      conversationId: conversation.id,
+      runId: run.id,
+      events,
+      event: {
+        type: EventType.RUN_FINISHED,
+        threadId: conversation.id,
+        runId: run.id,
+      },
+    });
+
+    await expect(
+      caller.getConversation({ projectId, conversationId: conversation.id }),
+    ).resolves.toMatchObject({
+      messages: [
+        {
+          id: "chunk-user",
+          role: "user",
+          content: "Stream this answer",
+        },
+        {
+          id: "chunk-assistant",
+          role: "assistant",
+          content: "First chunk",
+        },
+      ],
+    });
+
+    const persistedEvents = await prisma.inAppAgentEvent.findMany({
+      where: { projectId, conversationId: conversation.id, runId: run.id },
+      orderBy: { sequenceNumber: "asc" },
+      select: { type: true, event: true },
+    });
+
+    expect(persistedEvents.map((event) => event.type)).toEqual([
+      EventType.RUN_STARTED,
+      EventType.TEXT_MESSAGE_CHUNK,
+      EventType.RUN_FINISHED,
+    ]);
+    expect(persistedEvents[1]?.event).toMatchObject({
+      type: EventType.TEXT_MESSAGE_CHUNK,
+      messageId: "chunk-assistant",
+      role: "assistant",
+      delta: "First chunk",
+    });
   });
 
   it("does not expose another user's conversation in the same project", async () => {

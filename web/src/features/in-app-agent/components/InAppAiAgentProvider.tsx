@@ -427,7 +427,7 @@ function InAppAiAgentProviderInner({
           ? getHydratedMessages(messages, storedMessages)
           : [];
         // TODO: Avoid hydrating the full history once the agent client can send
-        // only the latest user turn; the server ignores older messages.
+        // only the latest user turn; the server rebuilds history from persistence.
         const agent = getOrCreateAgent(
           conversationId,
           initialMessages,
