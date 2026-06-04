@@ -124,14 +124,6 @@ function domainToV3(
   } as APIScoreV3;
 }
 
-export function valueFilterColumn(
-  dataType: string,
-): "value" | "string_value" | null {
-  if (dataType === "NUMERIC" || dataType === "BOOLEAN") return "value";
-  if (dataType === "CATEGORICAL") return "string_value";
-  return null;
-}
-
 export function transformBooleanValueForFilter(v: string): number {
   return v === "true" ? 1 : 0;
 }
