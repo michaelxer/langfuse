@@ -124,7 +124,7 @@ function domainToV3(
   } as APIScoreV3;
 }
 
-export function transformBooleanValueForFilter(v: string): number {
+export function transformBooleanValueForFilter(v: "true" | "false"): number {
   return v === "true" ? 1 : 0;
 }
 
@@ -333,7 +333,9 @@ function buildDynamicFilters(params: ListFilterParams): {
       extraParams[varName] = params.value.map(Number);
     } else if (dt === "BOOLEAN") {
       extraClauses.push(`s.value IN ({${varName}: Array(Float64)})`);
-      extraParams[varName] = params.value.map(transformBooleanValueForFilter);
+      extraParams[varName] = params.value.map((v) =>
+        transformBooleanValueForFilter(v as "true" | "false"),
+      );
     } else if (dt === "CATEGORICAL") {
       extraClauses.push(`s.string_value IN ({${varName}: Array(String)})`);
       extraParams[varName] = params.value;
@@ -395,7 +397,6 @@ export async function listScoresV3ForPublicApi(
 ): Promise<{ data: APIScoreV3[]; cursor?: string }> {
   const { query: filterClause, params: filterParams } =
     buildDynamicFilters(params);
-
 
   return measureAndReturn({
     operationName: "listScoresV3ForPublicApi",
