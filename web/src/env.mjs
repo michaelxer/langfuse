@@ -460,7 +460,9 @@ export const env = createEnv({
     AWS_ACCESS_KEY_ID: z.string().optional(),
     AWS_SECRET_ACCESS_KEY: z.string().optional(),
     LANGFUSE_AWS_BEDROCK_REGION: z.string().optional(),
-    LANGFUSE_IN_APP_AGENT_BEDROCK_MODEL_ID: z.string().optional(),
+    LANGFUSE_IN_APP_AGENT_BEDROCK_MODEL_ID: z
+      .string()
+      .default("eu.anthropic.claude-haiku-4-5-20251001-v1:0"),
     LANGFUSE_IN_APP_AGENT_AWS_PROFILE: z.string().optional(),
   },
 
