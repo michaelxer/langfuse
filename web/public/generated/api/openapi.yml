@@ -12147,15 +12147,12 @@ components:
           format: date-time
         details:
           $ref: '#/components/schemas/ScoreDetailsV3'
-          nullable: true
           description: Present when "details" is included in the fields parameter.
         subject:
           $ref: '#/components/schemas/ScoreSubjectV3'
-          nullable: true
           description: Present when "subject" is included in the fields parameter.
         annotation:
           $ref: '#/components/schemas/ScoreAnnotationV3'
-          nullable: true
           description: Present when "annotation" is included in the fields parameter.
       required:
         - id
