@@ -12146,13 +12146,16 @@ components:
           type: string
           format: date-time
         details:
-          $ref: '#/components/schemas/ScoreDetailsV3'
+          allOf:
+            - $ref: '#/components/schemas/ScoreDetailsV3'
           description: Present when "details" is included in the fields parameter.
         subject:
-          $ref: '#/components/schemas/ScoreSubjectV3'
+          allOf:
+            - $ref: '#/components/schemas/ScoreSubjectV3'
           description: Present when "subject" is included in the fields parameter.
         annotation:
-          $ref: '#/components/schemas/ScoreAnnotationV3'
+          allOf:
+            - $ref: '#/components/schemas/ScoreAnnotationV3'
           description: Present when "annotation" is included in the fields parameter.
       required:
         - id
