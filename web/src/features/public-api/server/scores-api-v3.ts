@@ -6,7 +6,11 @@ import {
   queryClickhouse,
   type ScoreRecordReadType,
 } from "@langfuse/shared/src/server";
-import type { APIScoreV3, ScoreDomain } from "@langfuse/shared";
+import type {
+  APIScoreV3,
+  ScoreDomain,
+  ScoreFieldGroupV3,
+} from "@langfuse/shared";
 import { InternalServerError, ScoreDataTypeEnum } from "@langfuse/shared";
 import {
   encodeCursorV3,
@@ -72,7 +76,10 @@ function deriveSubject(score: ScoreDomain): {
   return { kind: "trace", id: score.traceId };
 }
 
-function domainToV3(score: ScoreDomain, fields: string[]): APIScoreV3 {
+function domainToV3(
+  score: ScoreDomain,
+  fields: ScoreFieldGroupV3[],
+): APIScoreV3 {
   // ScoreDomain is a flat type so TypeScript cannot verify that dataType and
   // value are a valid discriminated pair; polymorphicValue guarantees it at runtime.
   return {
@@ -153,7 +160,7 @@ export async function listScoresV3ForPublicApi(params: {
   projectId: string;
   limit: number;
   cursor?: ScoresCursorV3Type;
-  fields: string[];
+  fields: ScoreFieldGroupV3[];
 }): Promise<{ data: APIScoreV3[]; cursor?: string }> {
   return measureAndReturn({
     operationName: "listScoresV3ForPublicApi",

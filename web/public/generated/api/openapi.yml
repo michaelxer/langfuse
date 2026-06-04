@@ -12079,6 +12079,8 @@ components:
           additionalProperties: true
           description: Arbitrary metadata attached to the score.
       required:
+        - comment
+        - configId
         - metadata
     ScoreSubjectKindV3:
       title: ScoreSubjectKindV3
@@ -12121,6 +12123,9 @@ components:
           type: string
           nullable: true
           description: The annotation queue this score belongs to, if any.
+      required:
+        - authorUserId
+        - queueId
     BaseScoreV3:
       title: BaseScoreV3
       type: object
