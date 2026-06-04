@@ -1,10 +1,8 @@
 import z from "zod";
 import { ScoreSourceDomain } from "../../../../domain/scores";
 
-// GET /v3/scores — limit + optional cursor (cursor decoded in web handler)
 export const GetScoresV3 = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
-  cursor: z.string().optional(),
 });
 
 const ScoreBaseV3 = z.object({
